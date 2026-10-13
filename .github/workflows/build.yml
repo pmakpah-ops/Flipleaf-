@@ -1,4 +1,5 @@
-name: Build FlipLeaf APK
+name: Build APK
+
 on:
   push:
     branches: [ main ]
@@ -15,15 +16,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Create Android folder
-        run: |
-          flutter create temp --project-name fliplleaf --platforms android
-          cp -r temp/android ./
-          rm -rf temp
-          flutter clean
-      - run: flutter pub get
-      - run: flutter build apk --release
-      - uses: actions/upload-artifact@v4
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Generate icons
+        run: dart run flutter_launcher_icons
+      - name: Build APK
+        run: flutter build apk --release
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          name: FlipLeaf-apk
+          name: flipleaf-apk
           path: build/app/outputs/flutter-apk/app-release.apk

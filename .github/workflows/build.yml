@@ -14,13 +14,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Clean
-        run: flutter clean
       - name: Restore Android folder if missing
         run: |
-          if [! -f "android/app/build.gradle" ]; then
-            flutter create. --platforms=android
+          if [ ! -f "android/app/build.gradle" ]; then
+            echo "Android folder missing, creating..."
+            flutter create . --platforms=android
           fi
+      - name: Clean
+        run: flutter clean
       - name: Get deps
         run: flutter pub get
       - name: Generate icons

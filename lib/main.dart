@@ -29,23 +29,23 @@ class PageData {
   String text;
   List<FormatRange> formats;
   double fontSize;
-  PageData({this.text="", List<FormatRange>? formats, this.fontSize=18}) : formats = formats?? [];
-  Map<String,dynamic> toJson() => {"text":text, "formats": formats.map((e)=>e.toJson()).toList(), "fs":fontSize};
+  PageData({this.text="", List<FormatRange>? formats, this.fontSize=18}) : formats = formats??[];
+  Map<String,dynamic> toJson() => {"text":text, "formats":formats.map((e)=>e.toJson()).toList(), "fs":fontSize};
   static PageData fromJson(Map<String,dynamic> j) {
-    List<FormatRange> fmt = [];
-    var raw = j["formats"];
-    if (raw is List) {
-      for (var e in raw) {
-        try { fmt.add(FormatRange.fromJson(Map<String,dynamic>.from(e as Map))); } catch (_) {}
+    List<FormatRange> fmt=[];
+    var raw=j["formats"];
+    if(raw is List){
+      for(var e in raw){
+        try{ fmt.add(FormatRange.fromJson(Map<String,dynamic>.from(e as Map))); }catch(_){}
       }
     }
-    String txt = "";
-    if (j["text"] is String) txt = j["text"] as String;
-    double fs = 18;
-    if (j["fs"] is num) fs = (j["fs"] as num).toDouble();
-    return PageData(text: txt, formats: fmt, fontSize: fs);
+    String txt="";
+    if(j["text"] is String) txt=j["text"];
+    double fs=18;
+    if(j["fs"] is num) fs=(j["fs"] as num).toDouble();
+    return PageData(text:txt, formats:fmt, fontSize:fs);
   }
-  PageData copy() {
+  PageData copy(){
     List<FormatRange> nl=[];
     for(var e in formats){ nl.add(FormatRange(e.start,e.end,bold:e.bold,italic:e.italic,underline:e.underline,fontSize:e.fontSize)); }
     return PageData(text:text, formats:nl, fontSize:fontSize);
@@ -57,10 +57,8 @@ class RichController extends TextEditingController {
   double baseSize;
   RichController({String? text, required this.formats, required this.baseSize}) : super(text:text);
   @override
-  TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
-    if(text.isEmpty){
-      return TextSpan(text:"", style:style);
-    }
+  TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}){
+    if(text.isEmpty){ return TextSpan(text:"", style:style); }
     List<TextSpan> ch=[];
     for(int i=0;i<text.length;i++){
       bool b=false,it=false,u=false; double fs=baseSize;
@@ -73,7 +71,7 @@ class RichController extends TextEditingController {
 
 class FlipleafEditor extends StatefulWidget {
   const FlipleafEditor({super.key});
-  @override State<FlipleafEditor> createState()=> _FlipleafEditorState();
+  @override State<FlipleafEditor> createState()=>_FlipleafEditorState();
 }
 
 class _FlipleafEditorState extends State<FlipleafEditor> {
@@ -95,8 +93,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   String createdDate="";
   final titleCtrl=TextEditingController();
 
-  @override
-  void initState(){
+  @override void initState(){
     super.initState();
     ctrl=RichController(text:"", formats:[], baseSize:18);
     createdDate="${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
@@ -109,17 +106,20 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
     if(saved!=null){
       try{
         var j=jsonDecode(saved) as Map<String,dynamic>;
-        setState((){
-          if (j["title"] is String) docTitle = j["title"];
-          if (j["created"] is String) createdDate = j["created"];
-          titleCtrl.text=docTitle;
-          var plist = j["pages"];
-          if (plist is List) {
-            pages = plist.map((e)=>PageData.fromJson(Map<String,dynamic>.from(e as Map))).toList();
+        List<PageData> loaded=[];
+        var plist=j["pages"];
+        if(plist is List){
+          for(var item in plist){
+            loaded.add(PageData.fromJson(Map<String,dynamic>.from(item as Map)));
           }
-          if(pages.isEmpty) pages=[PageData()];
-          if (j["bg"] is String) bgName = j["bg"];
-          if (j["timer"] is int) timerSec = j["timer"];
+        }
+        setState((){
+          if(j["title"] is String) docTitle=j["title"];
+          if(j["created"] is String) createdDate=j["created"];
+          titleCtrl.text=docTitle;
+          if(loaded.isNotEmpty) pages=loaded;
+          if(j["bg"] is String) bgName=j["bg"];
+          if(j["timer"] is int) timerSec=j["timer"];
         });
       }catch(e){}
     }
@@ -128,137 +128,59 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
 
   Future<void> saveDoc() async {
     final p=await SharedPreferences.getInstance();
-    var j={"title":docTitle, "created":createdDate, "bg":bgName, "timer":timerSec, "pages": pages.map((e)=>e.toJson()).toList()};
+    var j={"title":docTitle, "created":createdDate, "bg":bgName, "timer":timerSec, "pages":pages.map((e)=>e.toJson()).toList()};
     await p.setString("flipleaf_doc_v3", jsonEncode(j));
   }
 
   void initCtrl(){
     ctrl.dispose();
     ctrl=RichController(text:pages[cur].text, formats:pages[cur].formats, baseSize:pages[cur].fontSize);
-    ctrl.addListener((){
-      pages[cur].text=ctrl.text;
-      saveDoc();
-    });
+    ctrl.addListener((){ pages[cur].text=ctrl.text; saveDoc(); });
     setState((){});
   }
 
-  void saveUndo(){
-    undoStack.add(pages[cur].copy());
-    redoStack.clear();
-    if(undoStack.length>50) undoStack.removeAt(0);
+  void saveUndo(){ undoStack.add(pages[cur].copy()); redoStack.clear(); if(undoStack.length>50) undoStack.removeAt(0); }
+  bool _isAllStyled(int s,int e,bool Function(FormatRange) check){
+    for(int i=s;i<e;i++){ bool has=false; for(var f in pages[cur].formats){ if(i>=f.start && i<f.end && check(f)) has=true; } if(!has) return false; } return true;
   }
-
-  bool _isAllStyled(int s, int e, bool Function(FormatRange) check){
-    for(int i=s;i<e;i++){
-      bool has=false;
-      for(var f in pages[cur].formats){
-        if(i>=f.start && i<f.end && check(f)) has=true;
-      }
-      if(!has) return false;
-    }
-    return true;
-  }
-
-  void toggleStyle({bool? bold, bool? italic, bool? underline}){
+  void toggleStyle({bool? bold,bool? italic,bool? underline}){
     var sel=ctrl.selection;
-    if(!sel.isValid || sel.isCollapsed){
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text("Highlight text first"), duration:Duration(seconds:1)));
-      return;
-    }
-    saveUndo();
-    int s=sel.start, e=sel.end;
+    if(!sel.isValid || sel.isCollapsed){ ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text("Highlight text first"), duration:Duration(seconds:1))); return; }
+    saveUndo(); int s=sel.start, e=sel.end;
     bool allBold=false, allItalic=false, allUnderline=false;
     if(bold==true) allBold=_isAllStyled(s,e,(f)=>f.bold);
     if(italic==true) allItalic=_isAllStyled(s,e,(f)=>f.italic);
     if(underline==true) allUnderline=_isAllStyled(s,e,(f)=>f.underline);
     setState((){
-      pages[cur].formats.removeWhere((f){
-        bool overlap=!(f.end<=s || f.start>=e);
-        if(!overlap) return false;
-        if(bold==true && f.bold) return true;
-        if(italic==true && f.italic) return true;
-        if(underline==true && f.underline) return true;
-        return false;
-      });
+      pages[cur].formats.removeWhere((f){ bool overlap=!(f.end<=s || f.start>=e); if(!overlap) return false; if(bold==true && f.bold) return true; if(italic==true && f.italic) return true; if(underline==true && f.underline) return true; return false; });
       if(bold==true &&!allBold) pages[cur].formats.add(FormatRange(s,e,bold:true));
       if(italic==true &&!allItalic) pages[cur].formats.add(FormatRange(s,e,italic:true));
       if(underline==true &&!allUnderline) pages[cur].formats.add(FormatRange(s,e,underline:true));
-      ctrl.formats=pages[cur].formats;
-      saveDoc();
+      ctrl.formats=pages[cur].formats; saveDoc();
     });
   }
-
   void changeFont(double d){
-    var sel=ctrl.selection;
-    saveUndo();
+    var sel=ctrl.selection; saveUndo();
     setState((){
-      if(sel.isValid &&!sel.isCollapsed){
-        pages[cur].formats.add(FormatRange(sel.start, sel.end, fontSize: pages[cur].fontSize + d));
-      } else {
-        pages[cur].fontSize=(pages[cur].fontSize + d).clamp(12, 40);
-      }
-      ctrl.baseSize=pages[cur].fontSize;
-      ctrl.formats=pages[cur].formats;
-      saveDoc();
+      if(sel.isValid &&!sel.isCollapsed){ pages[cur].formats.add(FormatRange(sel.start, sel.end, fontSize:pages[cur].fontSize+d)); }
+      else{ pages[cur].fontSize=(pages[cur].fontSize+d).clamp(12,40); }
+      ctrl.baseSize=pages[cur].fontSize; ctrl.formats=pages[cur].formats; saveDoc();
     });
   }
-
   void undo(){ if(undoStack.isEmpty) return; setState((){ redoStack.add(pages[cur].copy()); pages[cur]=undoStack.removeLast(); initCtrl(); saveDoc(); }); }
   void redo(){ if(redoStack.isEmpty) return; setState((){ undoStack.add(pages[cur].copy()); pages[cur]=redoStack.removeLast(); initCtrl(); saveDoc(); }); }
-
   void flipPrev(){ if(cur>0){ setState((){ cur--; initCtrl(); elapsed=0; }); } }
-  void flipNext(){
-    setState((){
-      if(cur < pages.length-1){ cur++; } else { pages.add(PageData()); cur++; }
-      initCtrl(); elapsed=0;
-    });
-    SystemSound.play(SystemSoundType.alert);
-    HapticFeedback.heavyImpact();
-    saveDoc();
+  void flipNext(){ setState((){ if(cur<pages.length-1){ cur++; } else { pages.add(PageData()); cur++; } initCtrl(); elapsed=0; }); SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); saveDoc(); }
+  void startTimer(){ timer?.cancel(); timer=Timer.periodic(const Duration(seconds:1),(t){ if(!playing) return; setState((){ elapsed++; if(elapsed>=timerSec){ elapsed=0; if(cur<pages.length-1){ cur++; initCtrl(); SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); } else { playing=false; } } }); }); }
+  void showTimerDialog(){ var tc=TextEditingController(text:timerSec.toString()); showDialog(context:context, builder:(_)=>AlertDialog(title:const Text("Timer per page (seconds)"), content:TextField(controller:tc, keyboardType:TextInputType.number), actions:[TextButton(onPressed:(){ setState(()=>timerSec=int.tryParse(tc.text)??5); saveDoc(); Navigator.pop(context); }, child:const Text("OK"))])); }
+  void showSearch(){ var sc=TextEditingController(); List<int> results=[]; showDialog(context:context, builder:(_)=>StatefulBuilder(builder:(ctx,setSt)=>AlertDialog(title:const Text("Search"), content:Column(mainAxisSize:MainAxisSize.min, children:[TextField(controller:sc, decoration:const InputDecoration(hintText:"Enter word", prefixIcon:Icon(Icons.search)), onChanged:(v){ setSt((){ results=[]; for(int i=0;i<pages.length;i++){ if(pages[i].text.toLowerCase().contains(v.toLowerCase()) && v.isNotEmpty) results.add(i); } }); }), const SizedBox(height:8), for(int i in results) ListTile(dense:true, title:Text("Found in Page ${i+1}"), onTap:(){ Navigator.pop(context); setState((){ cur=i; initCtrl(); }); })]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Close"))]))); }
+  @override void dispose(){ timer?.cancel(); ctrl.dispose(); titleCtrl.dispose(); super.dispose(); }
+
+  Widget iconBtn(String label, FontWeight fw, VoidCallback tap, {bool italic=false, bool underline=false}){
+    return InkWell(onTap:tap, child:Container(width:28,height:28,margin:const EdgeInsets.all(2), alignment:Alignment.center, decoration:BoxDecoration(border:Border.all(color:Colors.black45), borderRadius:BorderRadius.circular(4), color:Colors.white), child:Text(label, style:TextStyle(fontWeight:fw, fontStyle:italic?FontStyle.italic:FontStyle.normal, decoration:underline?TextDecoration.underline:null, fontSize:12))));
   }
 
-  void startTimer(){
-    timer?.cancel();
-    timer=Timer.periodic(const Duration(seconds:1), (t){
-      if(!playing) return;
-      setState((){
-        elapsed++;
-        if(elapsed>=timerSec){
-          elapsed=0;
-          if(cur < pages.length-1){ cur++; initCtrl(); SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); } else { playing=false; }
-        }
-      });
-    });
-  }
-
-  void showTimerDialog(){
-    var tc=TextEditingController(text:timerSec.toString());
-    showDialog(context:context, builder:(_)=>AlertDialog(
-      title:const Text("Timer per page (seconds)"),
-      content:TextField(controller:tc, keyboardType:TextInputType.number),
-      actions:[TextButton(onPressed:(){ setState(()=> timerSec=int.tryParse(tc.text)??5); saveDoc(); Navigator.pop(context); }, child:const Text("OK"))],
-    ));
-  }
-
-  void showSearch(){
-    var sc=TextEditingController();
-    List<int> results=[];
-    showDialog(context:context, builder:(_)=>StatefulBuilder(builder:(ctx,setSt)=>AlertDialog(
-      title:const Text("Search"),
-      content:Column(mainAxisSize:MainAxisSize.min, children:[
-        TextField(controller:sc, decoration:const InputDecoration(hintText:"Enter word", prefixIcon:Icon(Icons.search)), onChanged:(v){ setSt((){ results=[]; for(int i=0;i<pages.length;i++){ if(pages[i].text.toLowerCase().contains(v.toLowerCase()) && v.isNotEmpty) results.add(i);} }); }),
-        const SizedBox(height:8),
-        for(int i in results) ListTile(dense:true, title:Text("Found in Page ${i+1}"), onTap:(){ Navigator.pop(context); setState((){ cur=i; initCtrl(); }); }),
-      ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Close"))],
-    )));
-  }
-
-  @override
-  void dispose(){ timer?.cancel(); ctrl.dispose(); titleCtrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context){
+  @override Widget build(BuildContext context){
     return Scaffold(
       backgroundColor:bgColors[bgName],
       appBar:AppBar(
@@ -289,17 +211,16 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
             IconButton(icon:const Icon(Icons.chevron_right, size:20), onPressed:flipNext),
           ]),
         ),
-        Padding(
-          padding:const EdgeInsets.symmetric(horizontal:12, vertical:6),
-          child: TextField(
-            controller:titleCtrl,
-            onChanged:(v){ docTitle=v; saveDoc(); },
-            style:const TextStyle(fontSize:16, fontWeight:FontWeight.bold),
-            decoration:const InputDecoration(hintText:"Document Title", border:InputBorder.none, isDense:true, prefixIcon:Icon(Icons.title, size:18)),
-          ),
-        ),
+        Padding(padding:const EdgeInsets.symmetric(horizontal:12, vertical:6), child:TextField(controller:titleCtrl, onChanged:(v){ docTitle=v; saveDoc(); }, style:const TextStyle(fontSize:16, fontWeight:FontWeight.bold), decoration:const InputDecoration(hintText:"Document Title", border:InputBorder.none, isDense:true, prefixIcon:Icon(Icons.title, size:18)))),
         Expanded(child:Container(margin:const EdgeInsets.fromLTRB(8,0,8,8), padding:const EdgeInsets.all(12), decoration:BoxDecoration(color:bgColors[bgName], borderRadius:BorderRadius.circular(8), border:Border.all(color:Colors.black26)),
           child:Column(crossAxisAlignment:CrossAxisAlignment.start, children:[
-            Row(mainAxisAlignment:MainAxisAlignment.spaceBetween, children:[
-              Text("Page ${cur+1}", style:TextStyle(fontSize:10, color:Colors.grey[600])),
-              Text("Created: $createdDate", style:TextStyle(fontSize:10, color:Colors.grey[600], fontStyle
+            Row(mainAxisAlignment:MainAxisAlignment.spaceBetween, children:[Text("Page ${cur+1}", style:TextStyle(fontSize:10, color:Colors.grey[600])), Text("Created: $createdDate", style:TextStyle(fontSize:10, color:Colors.grey[600], fontStyle:FontStyle.italic))]),
+            const Divider(height:10),
+            Expanded(child:TextField(controller:ctrl, maxLines:null, expands:true, style:TextStyle(fontSize:pages[cur].fontSize), decoration:const InputDecoration(border:InputBorder.none, hintText:"Type here... select text then tap B/I/U"))),
+            if(playing) LinearProgressIndicator(value:elapsed/timerSec, color:Colors.orange, minHeight:3),
+          ]),
+        )),
+      ]),
+    );
+  }
+}

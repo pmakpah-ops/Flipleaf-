@@ -16,8 +16,8 @@ jobs:
           channel: 'stable'
       - name: Restore Android folder ONLY if missing
         run: |
-          if [! -f "android/app/build.gradle" ]; then
-            flutter create. --platforms=android
+          if [ ! -f "android/app/build.gradle" ]; then
+            flutter create . --platforms=android
           fi
       - name: Get deps
         run: flutter pub get

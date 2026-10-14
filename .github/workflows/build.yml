@@ -17,7 +17,6 @@ jobs:
       - name: Restore Android folder if missing
         run: |
           if [ ! -f "android/app/build.gradle" ]; then
-            echo "Android folder missing, creating..."
             flutter create . --platforms=android
           fi
       - name: Clean

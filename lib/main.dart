@@ -491,4 +491,42 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                 margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(color: bgColors[bgName], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.black26)),
-                
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text("Page ${cur + 1}", style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+                        Text("Created: $createdDate", style: TextStyle(fontSize: 10, color: Colors.grey[600], fontStyle: FontStyle.italic)),
+                      ],
+                    ),
+                    const Divider(height: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: ctrl,
+                        maxLines: null,
+                        expands: true,
+                        style: TextStyle(fontSize: pages[cur].fontSize),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          hintText: "Type here... select text then tap B/I/U",
+                        ),
+                      ),
+                    ),
+                    if (playing)
+                      LinearProgressIndicator(
+                        value: timerSec > 0 ? (elapsed / timerSec).clamp(0.0, 1.0) : 0.0,
+                        color: Colors.orange,
+                        minHeight: 3,
+                      ),
+                  ],
+                ),
+            ),
+          ]),
+        ),
+      ),
+    ]),
+    );
+  }
+}

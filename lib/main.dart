@@ -646,7 +646,31 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
         IconButton(icon: Icon(playing? Icons.pause : Icons.play_arrow, size: 24), onPressed: () { setState(() => playing =!playing); startTimer(); }),
         PopupMenuButton<String>(icon: const Icon(Icons.palette, size: 22), onSelected: (v) { setState(() => bgName = v); saveDoc(); }, itemBuilder: (_) => bgColors.keys.map((k) => PopupMenuItem(value: k, child: Text(k))).toList()),
         IconButton(icon: const Icon(Icons.timer, size: 22), onPressed: showTimerDialog),
-        PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (v) { if (v == "present") showPresentation(); if (v == "share") shareDocument(currentDocId); }, itemBuilder: (_) => const [PopupMenuItem(value: "present", child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.slideshow), title: Text("Presentation mode"))), PopupMenuItem(value: "share", child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.share), title: Text("Share full document"))]),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: (v) {
+            if (v == "present") showPresentation();
+            if (v == "share") shareDocument(currentDocId);
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem<String>(
+              value: "present",
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.slideshow),
+                title: Text("Presentation mode"),
+              ),
+            ),
+            PopupMenuItem<String>(
+              value: "share",
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.share),
+                title: Text("Share full document"),
+              ),
+            ),
+          ],
+        ),
       ]),
       body: Column(children: [
         Container(color: const Color(0xFFD9D9B8), padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4), child: Row(children: [iconBtn("B", FontWeight.bold, () => toggleStyle(bold: true)), iconBtn("I", FontWeight.normal, () => toggleStyle(italic: true), italic: true), iconBtn("U", FontWeight.normal, () => toggleStyle(underline: true), underline: true), const SizedBox(width: 6), IconButton(icon: const Icon(Icons.undo, size: 22), onPressed: undo), IconButton(icon: const Icon(Icons.redo, size: 22), onPressed: redo), const Spacer(), IconButton(icon: const Text("A-", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), onPressed: () => changeFont(-1)), Text("${pages[cur].fontSize.toInt()}", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)), IconButton(icon: const Text("A+", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), onPressed: () => changeFont(1)),])),

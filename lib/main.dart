@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() => runApp(const FlipleafApp());
 
@@ -174,6 +175,8 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
           if (loaded.isNotEmpty) pages = loaded;
           cur = 0;
           if (j["bg"] is String) bgName = j["bg"];
+          final docIndex = allDocs.indexWhere((d) => d["id"] == id);
+          if (docIndex >= 0 && bgColors.containsKey(allDocs[docIndex]["color"])) bgName = allDocs[docIndex]["color"]!;
           if (j["timer"] is int) timerSec = j["timer"];
         });
       } catch (_) {}
@@ -197,6 +200,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
     int idx = allDocs.indexWhere((e) => e["id"] == currentDocId);
     if (idx >= 0) {
       allDocs[idx]["title"] = docTitle.isEmpty? "Untitled" : docTitle;
+      allDocs[idx]["color"] = bgName;
       await p.setString("flipleaf_all_list", jsonEncode(allDocs));
     }
   }
@@ -234,6 +238,167 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
     } else {
       setState(() {});
     }
+  }
+
+
+  Future<void> deleteCurrentPage() async {
+    if (pages.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("A document must keep at least one page.")));
+      return;
+    }
+    final pageNumber = cur + 1;
+    final hasText = pages[cur].text.trim().isNotEmpty;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("Delete page $pageNumber?"),
+        content: Text(hasText
+          ? "This page contains text. Deleting it will permanently remove its content from this document."
+          : "This page is blank. Do you want to delete it?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Delete", style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      pages.removeAt(cur);
+      if (cur >= pages.length) cur = pages.length - 1;
+      initCtrl();
+    });
+    await saveDoc();
+  }
+
+  Future<void> shareDocument(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    String title = "Untitled";
+    List<PageData> sharePages = [];
+    if (id == currentDocId) {
+      title = docTitle.trim().isEmpty ? "Untitled" : docTitle.trim();
+      sharePages = pages.map((page) => page.copy()).toList();
+    } else {
+      final saved = prefs.getString("flipleaf_$id");
+      if (saved != null) {
+        try {
+          final data = jsonDecode(saved) as Map<String, dynamic>;
+          if (data["title"] is String && (data["title"] as String).trim().isNotEmpty) title = data["title"];
+          if (data["pages"] is List) {
+            sharePages = (data["pages"] as List).map((e) => PageData.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+          }
+        } catch (_) {}
+      }
+    }
+    final text = "$title\\n\\n" + List.generate(sharePages.length, (i) =>
+      "PAGE ${i + 1}\\n${sharePages[i].text.trim()}").join("\\n\\n");
+    await Share.share(text.trim().isEmpty ? title : text, subject: title);
+  }
+
+  Future<void> chooseDocumentColor(String id) async {
+    final current = allDocs.firstWhere((d) => d["id"] == id, orElse: () => <String, String>{});
+    if (current.isEmpty) return;
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text("Document colour"),
+        children: bgColors.keys.map((name) => SimpleDialogOption(
+          onPressed: () => Navigator.pop(ctx, name),
+          child: Row(children: [
+            Container(width: 24, height: 24, decoration: BoxDecoration(
+              color: bgColors[name], border: Border.all(color: Colors.black26),
+              borderRadius: BorderRadius.circular(5))),
+            const SizedBox(width: 12),
+            Text(name),
+            const Spacer(),
+            if (current["color"] == name || (current["color"] == null && id == currentDocId && bgName == name))
+              const Icon(Icons.check, size: 18),
+          ]),
+        )).toList(),
+      ),
+    );
+    if (selected == null) return;
+    current["color"] = selected;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("flipleaf_all_list", jsonEncode(allDocs));
+    if (id == currentDocId) {
+      setState(() => bgName = selected);
+      await saveDoc();
+    } else {
+      final saved = prefs.getString("flipleaf_$id");
+      if (saved != null) {
+        try {
+          final data = jsonDecode(saved) as Map<String, dynamic>;
+          data["bg"] = selected;
+          await prefs.setString("flipleaf_$id", jsonEncode(data));
+        } catch (_) {}
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  void showDocumentActions(Map<String, String> document) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(child: Wrap(children: [
+        ListTile(leading: const Icon(Icons.share), title: const Text("Share full document"),
+          onTap: () async {
+            Navigator.pop(ctx);
+            await shareDocument(document["id"]!);
+          }),
+        ListTile(leading: const Icon(Icons.palette_outlined), title: const Text("Document colour"),
+          onTap: () {
+            Navigator.pop(ctx);
+            chooseDocumentColor(document["id"]!);
+          }),
+      ])),
+    );
+  }
+
+  Future<void> showPresentation() async {
+    final sections = <String>[];
+    for (int i = 0; i < pages.length; i++) {
+      final text = pages[i].text.trim();
+      if (text.isEmpty) continue;
+      sections.addAll(text.split(RegExp(r"\\n\\s*\\n+")).map((e) => e.trim()).where((e) => e.isNotEmpty));
+    }
+    if (sections.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add some text before starting presentation mode.")));
+      return;
+    }
+    int revealed = 1;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SafeArea(child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              const Icon(Icons.slideshow, size: 26),
+              const SizedBox(width: 8),
+              Expanded(child: Text(docTitle.trim().isEmpty ? "Presentation" : docTitle,
+                style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis)),
+              IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close), tooltip: "Close presentation"),
+            ]),
+            const SizedBox(height: 8),
+            Text("Section $revealed of ${sections.length}", style: const TextStyle(color: Colors.grey)),
+            const Divider(),
+            Flexible(child: SingleChildScrollView(child: Text(
+              sections.take(revealed).join("\\n\\n"),
+              style: const TextStyle(fontSize: 22, height: 1.5),
+            ))),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: revealed < sections.length ? () => setDialogState(() => revealed++) : null,
+              icon: Icon(revealed < sections.length ? Icons.arrow_forward : Icons.check),
+              label: Text(revealed < sections.length ? "Reveal next section" : "End of document"),
+            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Exit presentation")),
+          ]),
+        )),
+      )),
+    );
   }
 
   void saveUndo() {
@@ -467,6 +632,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
             subtitle: Text("Created: ${d["created"]}"),
             selected: d["id"] == currentDocId,
             trailing: IconButton(icon: const Icon(Icons.delete, size: 18), onPressed: () => deleteDoc(d["id"]!)),
+            onLongPress: () => showDocumentActions(d),
             onTap: () {
               Navigator.pop(context);
               if (d["id"]!= currentDocId) loadDoc(d["id"]!);
@@ -478,6 +644,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
         IconButton(icon: Icon(playing? Icons.pause : Icons.play_arrow, size: 24), onPressed: () { setState(() => playing =!playing); startTimer(); }),
         PopupMenuButton<String>(icon: const Icon(Icons.palette, size: 22), onSelected: (v) { setState(() => bgName = v); saveDoc(); }, itemBuilder: (_) => bgColors.keys.map((k) => PopupMenuItem(value: k, child: Text(k))).toList()),
         IconButton(icon: const Icon(Icons.timer, size: 22), onPressed: showTimerDialog),
+        PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (v) { if (v == "present") showPresentation(); if (v == "share") shareDocument(currentDocId); }, itemBuilder: (_) => const [PopupMenuItem(value: "present", child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.slideshow), title: Text("Presentation mode"))), PopupMenuItem(value: "share", child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.share), title: Text("Share full document"))]),
       ]),
       body: Column(children: [
         Container(color: const Color(0xFFD9D9B8), padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4), child: Row(children: [iconBtn("B", FontWeight.bold, () => toggleStyle(bold: true)), iconBtn("I", FontWeight.normal, () => toggleStyle(italic: true), italic: true), iconBtn("U", FontWeight.normal, () => toggleStyle(underline: true), underline: true), const SizedBox(width: 6), IconButton(icon: const Icon(Icons.undo, size: 22), onPressed: undo), IconButton(icon: const Icon(Icons.redo, size: 22), onPressed: redo), const Spacer(), IconButton(icon: const Text("A-", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), onPressed: () => changeFont(-1)), Text("${pages[cur].fontSize.toInt()}", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)), IconButton(icon: const Text("A+", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), onPressed: () => changeFont(1)),])),
@@ -494,13 +661,15 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    GestureDetector(
+                      onLongPress: deleteCurrentPage,
+                      child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text("Page ${cur + 1}", style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+                        Text("Page ${cur + 1}  (hold to delete)", style: TextStyle(fontSize: 10, color: Colors.grey[600])),
                         Text("Created: $createdDate", style: TextStyle(fontSize: 10, color: Colors.grey[600], fontStyle: FontStyle.italic)),
                       ],
-                    ),
+                    )),
                     const Divider(height: 10),
                     Expanded(
                       child: TextField(

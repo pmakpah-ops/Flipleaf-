@@ -186,6 +186,9 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
         cur = 0;
         docTitle = "";
         titleCtrl.text = "";
+        final docIndex = allDocs.indexWhere((d) => d["id"] == id);
+        bgName = docIndex >= 0 && bgColors.containsKey(allDocs[docIndex]["color"])
+            ? allDocs[docIndex]["color"]! : "White";
       });
     }
     initCtrl();
@@ -505,7 +508,6 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
       elapsed = 0;
     });
     HapticFeedback.mediumImpact();
-    SystemSound.play(SystemSoundType.click);
     saveDoc();
   }
 

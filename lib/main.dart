@@ -359,48 +359,89 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
 
   Future<void> showPresentation() async {
     final sections = <String>[];
-    for (int i = 0; i < pages.length; i++) {
-      final text = pages[i].text.trim();
-      if (text.isEmpty) continue;
-      sections.addAll(text.split(RegExp(r"\\n\\s*\\n+")).map((e) => e.trim()).where((e) => e.isNotEmpty));
+    final pointPattern = RegExp(r'^\s*(?:[-*•▪]|\d+[.)]|[A-Za-z][.)])\s+');
+    for (final page in pages) {
+      final source = page.text.replaceAll('\r\n', '\n').trim();
+      if (source.isEmpty) continue;
+      for (final paragraph in source.split(RegExp(r'\n\s*\n+'))) {
+        final trimmed = paragraph.trim();
+        if (trimmed.isEmpty) continue;
+        final lines = trimmed.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+        if (lines.length > 1 && lines.every((line) => pointPattern.hasMatch(line))) {
+          sections.addAll(lines);
+        } else {
+          sections.add(trimmed);
+        }
+      }
     }
     if (sections.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add some text before starting presentation mode.")));
       return;
     }
-    int revealed = 1;
+    final mode = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Presentation style"),
+        content: const Text("Choose how each paragraph or point should appear."),
+        actions: [
+          TextButton.icon(onPressed: () => Navigator.pop(ctx, "instant"), icon: const Icon(Icons.slideshow), label: const Text("Instant reveal")),
+          FilledButton.icon(onPressed: () => Navigator.pop(ctx, "typing"), icon: const Icon(Icons.keyboard_alt_outlined), label: const Text("Typewriter effect")),
+        ],
+      ),
+    );
+    if (mode == null || !mounted) return;
+    int index = 0;
+    String visibleText = mode == "instant" ? sections[0] : "";
+    int animationToken = 0;
+    bool typing = false;
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: SafeArea(child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(children: [
-              const Icon(Icons.slideshow, size: 26),
-              const SizedBox(width: 8),
-              Expanded(child: Text(docTitle.trim().isEmpty ? "Presentation" : docTitle,
-                style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis)),
-              IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close), tooltip: "Close presentation"),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          child: SafeArea(child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                const Icon(Icons.slideshow, size: 26),
+                const SizedBox(width: 8),
+                Expanded(child: Text(docTitle.trim().isEmpty ? "Presentation" : docTitle,
+                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis)),
+                IconButton(onPressed: () { animationToken++; Navigator.pop(ctx); }, icon: const Icon(Icons.close), tooltip: "Close presentation"),
+              ]),
+              const SizedBox(height: 8),
+              Text("Slide \${index + 1} of \${sections.length}", style: const TextStyle(color: Colors.grey)),
+              const Divider(),
+              Flexible(child: SingleChildScrollView(child: Align(alignment: Alignment.centerLeft, child: Text(
+                visibleText, key: ValueKey(index), style: const TextStyle(fontSize: 22, height: 1.5),
+              )))),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: typing || index >= sections.length - 1 ? null : () async {
+                  final nextIndex = index + 1;
+                  if (mode == "instant") {
+                    setDialogState(() { index = nextIndex; visibleText = sections[index]; });
+                  } else {
+                    final token = ++animationToken;
+                    setDialogState(() { index = nextIndex; visibleText = ""; typing = true; });
+                    final target = sections[nextIndex];
+                    for (int count = 1; count <= target.length; count++) {
+                      await Future.delayed(const Duration(milliseconds: 12));
+                      if (!ctx.mounted || token != animationToken) return;
+                      setDialogState(() { visibleText = target.substring(0, count); });
+                    }
+                    if (ctx.mounted && token == animationToken) setDialogState(() => typing = false);
+                  }
+                },
+                icon: Icon(index < sections.length - 1 ? Icons.arrow_forward : Icons.check),
+                label: Text(typing ? "Typing…" : (index < sections.length - 1 ? "Next slide" : "End of presentation")),
+              ),
+              TextButton(onPressed: () { animationToken++; Navigator.pop(ctx); }, child: const Text("Exit presentation")),
             ]),
-            const SizedBox(height: 8),
-            Text("Section $revealed of ${sections.length}", style: const TextStyle(color: Colors.grey)),
-            const Divider(),
-            Flexible(child: SingleChildScrollView(child: Text(
-              sections.take(revealed).join("\\n\\n"),
-              style: const TextStyle(fontSize: 22, height: 1.5),
-            ))),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: revealed < sections.length ? () => setDialogState(() => revealed++) : null,
-              icon: Icon(revealed < sections.length ? Icons.arrow_forward : Icons.check),
-              label: Text(revealed < sections.length ? "Reveal next section" : "End of document"),
-            ),
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Exit presentation")),
-          ]),
-        )),
-      )),
+          )),
+        ),
+      ),
     );
   }
 

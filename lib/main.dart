@@ -285,16 +285,26 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
       if (saved != null) {
         try {
           final data = jsonDecode(saved) as Map<String, dynamic>;
-          if (data["title"] is String && (data["title"] as String).trim().isNotEmpty) title = data["title"];
+          if (data["title"] is String && (data["title"] as String).trim().isNotEmpty) {
+            title = (data["title"] as String).trim();
+          }
           if (data["pages"] is List) {
-            sharePages = (data["pages"] as List).map((e) => PageData.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+            sharePages = (data["pages"] as List)
+                .map((e) => PageData.fromJson(Map<String, dynamic>.from(e as Map)))
+                .toList();
           }
         } catch (_) {}
       }
     }
-    final text = "$title\\n\\n" + List.generate(sharePages.length, (i) =>
-      "PAGE ${i + 1}\\n${sharePages[i].text.trim()}").join("\\n\\n");
-    await Share.share(text.trim().isEmpty ? title : text, subject: title);
+
+    // Share clean document text: use real line breaks and omit editor-only
+    // page labels so the recipient sees the title and original content only.
+    final content = sharePages
+        .map((page) => page.text.trim())
+        .where((pageText) => pageText.isNotEmpty)
+        .join('\n\n');
+    final sharedText = content.isEmpty ? title : '$title\n\n$content';
+    await Share.share(sharedText, subject: title);
   }
 
   Future<void> chooseDocumentColor(String id) async {

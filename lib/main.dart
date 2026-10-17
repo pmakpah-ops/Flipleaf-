@@ -208,6 +208,139 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
     }
   }
 
+  bool _autoPaginating = false;
+
+  TextSpan _pageSpan(PageData page, String value) {
+    final children = <TextSpan>[];
+    for (int i = 0; i < value.length; i++) {
+      bool bold = false, italic = false, underline = false;
+      double size = page.fontSize;
+      for (final format in page.formats) {
+        if (i >= format.start && i < format.end) {
+          bold = bold || format.bold;
+          italic = italic || format.italic;
+          underline = underline || format.underline;
+          if (format.fontSize != null) size = format.fontSize!;
+        }
+      }
+      children.add(TextSpan(
+        text: value[i],
+        style: TextStyle(
+          fontSize: size,
+          fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+          fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+          decoration: underline ? TextDecoration.underline : TextDecoration.none,
+        ),
+      ));
+    }
+    return TextSpan(children: children);
+  }
+
+  double _measurePage(PageData page, String value, double width) {
+    final painter = TextPainter(
+      text: _pageSpan(page, value),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: width);
+    final height = painter.height;
+    painter.dispose();
+    return height;
+  }
+
+  int? _findPageBreak(PageData page, double width, double height) {
+    final value = page.text;
+    if (value.isEmpty || _measurePage(page, value, width) <= height) return null;
+    int low = 1, high = value.length, fit = 1;
+    while (low <= high) {
+      final mid = (low + high) ~/ 2;
+      if (_measurePage(page, value.substring(0, mid), width) <= height) {
+        fit = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    // Prefer a natural word/paragraph boundary, without discarding whitespace.
+    int cut = fit;
+    final boundary = value.lastIndexOf(RegExp(r'\s'), fit - 1);
+    if (boundary > 0) cut = boundary + 1;
+    if (cut > 0 && cut < value.length &&
+        value.codeUnitAt(cut - 1) >= 0xD800 && value.codeUnitAt(cut - 1) <= 0xDBFF) {
+      cut--;
+    }
+    return cut.clamp(1, value.length - 1);
+  }
+
+  List<FormatRange> _sliceFormats(List<FormatRange> formats, int start, int end, {int shift = 0}) {
+    final result = <FormatRange>[];
+    for (final format in formats) {
+      final a = format.start > start ? format.start : start;
+      final b = format.end < end ? format.end : end;
+      if (a < b) {
+        result.add(FormatRange(
+          a - start + shift,
+          b - start + shift,
+          bold: format.bold,
+          italic: format.italic,
+          underline: format.underline,
+          fontSize: format.fontSize,
+        ));
+      }
+    }
+    return result;
+  }
+
+  void _paginateOverflow(double width, double height) {
+    if (_autoPaginating || !mounted || width <= 0 || height <= 0) return;
+    _autoPaginating = true;
+    try {
+      final usableWidth = (width - 4).clamp(40.0, width);
+      // Account for TextField's internal vertical content padding.
+      final usableHeight = (height - 24).clamp(24.0, height);
+      int pageIndex = cur;
+      bool changed = false;
+      while (pageIndex < pages.length && pageIndex < cur + 100) {
+        final page = pages[pageIndex];
+        final cut = _findPageBreak(page, usableWidth, usableHeight);
+        if (cut == null) break;
+
+        final original = page.text;
+        final tail = original.substring(cut);
+        final tailFormats = _sliceFormats(page.formats, cut, original.length);
+        page.text = original.substring(0, cut);
+        page.formats = _sliceFormats(page.formats, 0, cut);
+        if (pageIndex == cur) {
+          final selectionOffset = ctrl.selection.baseOffset.clamp(0, page.text.length);
+          ctrl.value = TextEditingValue(
+            text: page.text,
+            selection: TextSelection.collapsed(offset: selectionOffset),
+          );
+          ctrl.formats = page.formats;
+        }
+
+        if (pageIndex + 1 >= pages.length) {
+          pages.add(PageData(fontSize: page.fontSize));
+        }
+        final next = pages[pageIndex + 1];
+        final existingText = next.text;
+        final existingFormats = next.formats;
+        next.text = tail + existingText;
+        next.formats = <FormatRange>[
+          ...tailFormats,
+          ..._sliceFormats(existingFormats, 0, existingText.length, shift: tail.length),
+        ];
+        changed = true;
+        pageIndex++;
+      }
+      if (changed) {
+        setState(() {});
+        saveDoc();
+      }
+    } finally {
+      _autoPaginating = false;
+    }
+  }
+
   void initCtrl() {
     ctrl.dispose();
     ctrl = RichController(text: pages[cur].text, formats: pages[cur].formats, baseSize: pages[cur].fontSize);
@@ -749,14 +882,20 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                     )),
                     const Divider(height: 10),
                     Expanded(
-                      child: TextField(
-                        controller: ctrl,
-                        maxLines: null,
-                        expands: true,
-                        style: TextStyle(fontSize: pages[cur].fontSize),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          hintText: "Type here... select text then tap B/I/U",
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => TextField(
+                          controller: ctrl,
+                          maxLines: null,
+                          expands: true,
+                          style: TextStyle(fontSize: pages[cur].fontSize),
+                          onChanged: (_) => _paginateOverflow(
+                            constraints.maxWidth,
+                            constraints.maxHeight,
+                          ),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: "Type here... select text then tap B/I/U",
+                          ),
                         ),
                       ),
                     ),

@@ -109,6 +109,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   int cur = 0;
   late RichController ctrl;
   List<PageData> undoStack = [], redoStack = [];
+  Future<void> _saveQueue = Future<void>.value();
   Map<String, Color> bgColors = {
     "White": Colors.white,
     "Black": const Color(0xFFE0E0E0),
@@ -197,8 +198,6 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   }
 
   Future<void> saveDoc() async {
-    // Snapshot state before awaiting storage, so a later page/document switch
-    // cannot change which content this save writes.
     final id = currentDocId;
     final title = docTitle;
     final created = createdDate;
@@ -212,15 +211,18 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
       "timer": seconds,
       "pages": pageSnapshot,
     });
-    final listSnapshot = allDocs.map((entry) => Map<String, String>.from(entry)).toList();
     final p = await SharedPreferences.getInstance();
-    await p.setString("flipleaf_$id", documentJson);
-    final idx = listSnapshot.indexWhere((entry) => entry["id"] == id);
-    if (idx >= 0) {
-      listSnapshot[idx]["title"] = title.isEmpty ? "Untitled" : title;
-      listSnapshot[idx]["color"] = background;
-      await p.setString("flipleaf_all_list", jsonEncode(listSnapshot));
-    }
+    // Serialize writes so a slower, older save cannot overwrite a newer edit.
+    _saveQueue = _saveQueue.then((_) async {
+      await p.setString("flipleaf_$id", documentJson);
+      final idx = allDocs.indexWhere((entry) => entry["id"] == id);
+      if (idx >= 0) {
+        allDocs[idx]["title"] = title.isEmpty ? "Untitled" : title;
+        allDocs[idx]["color"] = background;
+        await p.setString("flipleaf_all_list", jsonEncode(allDocs));
+      }
+    });
+    await _saveQueue;
   }
 
   bool _autoPaginating = false;
@@ -312,8 +314,11 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
       // TextField has its own horizontal and vertical content padding. Measure
       // within the actual inner area and leave a small safety margin so the
       // final visible line is not clipped by the editor's line-height rules.
-      final usableWidth = (width - 28).clamp(40.0, width);
-      final usableHeight = (height - 40).clamp(24.0, height);
+      // The LayoutBuilder is already inside the page's visible writing box.
+      // Reserve only the TextField's actual internal inset, not a large extra
+      // margin, so pages use the available screen area efficiently.
+      final usableWidth = (width - 20).clamp(40.0, width);
+      final usableHeight = (height - 12).clamp(24.0, height);
       int pageIndex = cur;
       bool changed = false;
       while (pageIndex < pages.length && pageIndex < cur + 100) {
@@ -376,8 +381,19 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
     ctrl.dispose();
     ctrl = RichController(text: pages[cur].text, formats: pages[cur].formats, baseSize: pages[cur].fontSize);
     ctrl.addListener(() {
-      pages[cur].text = ctrl.text;
-      saveDoc();
+      if (cur < 0 || cur >= pages.length) return;
+      final page = pages[cur];
+      if (page.text != ctrl.text) {
+        // Capture the previous page state before each text edit so undo/redo
+        // works for ordinary typing, deletion, and paste as well as formatting.
+        if (!_autoPaginating) {
+          undoStack.add(page.copy());
+          if (undoStack.length > 50) undoStack.removeAt(0);
+          redoStack.clear();
+        }
+        page.text = ctrl.text;
+        saveDoc();
+      }
     });
     setState(() {});
   }

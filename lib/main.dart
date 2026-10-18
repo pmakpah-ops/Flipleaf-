@@ -197,14 +197,29 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   }
 
   Future<void> saveDoc() async {
+    // Snapshot state before awaiting storage, so a later page/document switch
+    // cannot change which content this save writes.
+    final id = currentDocId;
+    final title = docTitle;
+    final created = createdDate;
+    final background = bgName;
+    final seconds = timerSec;
+    final pageSnapshot = pages.map((page) => page.copy().toJson()).toList();
+    final documentJson = jsonEncode({
+      "title": title,
+      "created": created,
+      "bg": background,
+      "timer": seconds,
+      "pages": pageSnapshot,
+    });
+    final listSnapshot = allDocs.map((entry) => Map<String, String>.from(entry)).toList();
     final p = await SharedPreferences.getInstance();
-    var j = {"title": docTitle, "created": createdDate, "bg": bgName, "timer": timerSec, "pages": pages.map((e) => e.toJson()).toList()};
-    await p.setString("flipleaf_$currentDocId", jsonEncode(j));
-    int idx = allDocs.indexWhere((e) => e["id"] == currentDocId);
+    await p.setString("flipleaf_$id", documentJson);
+    final idx = listSnapshot.indexWhere((entry) => entry["id"] == id);
     if (idx >= 0) {
-      allDocs[idx]["title"] = docTitle.isEmpty? "Untitled" : docTitle;
-      allDocs[idx]["color"] = bgName;
-      await p.setString("flipleaf_all_list", jsonEncode(allDocs));
+      listSnapshot[idx]["title"] = title.isEmpty ? "Untitled" : title;
+      listSnapshot[idx]["color"] = background;
+      await p.setString("flipleaf_all_list", jsonEncode(listSnapshot));
     }
   }
 
@@ -294,9 +309,11 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
     if (_autoPaginating || !mounted || width <= 0 || height <= 0) return;
     _autoPaginating = true;
     try {
-      final usableWidth = (width - 4).clamp(40.0, width);
-      // Account for TextField's internal vertical content padding.
-      final usableHeight = (height - 24).clamp(24.0, height);
+      // TextField has its own horizontal and vertical content padding. Measure
+      // within the actual inner area and leave a small safety margin so the
+      // final visible line is not clipped by the editor's line-height rules.
+      final usableWidth = (width - 28).clamp(40.0, width);
+      final usableHeight = (height - 40).clamp(24.0, height);
       int pageIndex = cur;
       bool changed = false;
       while (pageIndex < pages.length && pageIndex < cur + 100) {
@@ -306,16 +323,22 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
 
         final original = page.text;
         final tail = original.substring(cut);
+        if (tail.isEmpty) break;
         final tailFormats = _sliceFormats(page.formats, cut, original.length);
-        page.text = original.substring(0, cut);
-        page.formats = _sliceFormats(page.formats, 0, cut);
+        page.text = original.substring(0, cut).trimRight();
+        final keptLength = page.text.length;
+        page.formats = _sliceFormats(page.formats, 0, keptLength);
+
         if (pageIndex == cur) {
-          final selectionOffset = ctrl.selection.baseOffset.clamp(0, page.text.length);
+          final oldSelection = ctrl.selection;
+          final selectionOffset = oldSelection.isValid
+              ? oldSelection.baseOffset.clamp(0, page.text.length)
+              : page.text.length;
+          ctrl.formats = page.formats;
           ctrl.value = TextEditingValue(
             text: page.text,
             selection: TextSelection.collapsed(offset: selectionOffset),
           );
-          ctrl.formats = page.formats;
         }
 
         if (pageIndex + 1 >= pages.length) {
@@ -324,17 +347,25 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
         final next = pages[pageIndex + 1];
         final existingText = next.text;
         final existingFormats = next.formats;
-        next.text = tail + existingText;
+        final leadingTail = tail.trimLeft();
+        final removedLeading = tail.length - leadingTail.length;
+        final adjustedTailFormats = _sliceFormats(
+          tailFormats, removedLeading, tail.length,
+        );
+        next.text = leadingTail + (existingText.isEmpty ? "" : "\n$existingText");
         next.formats = <FormatRange>[
-          ...tailFormats,
-          ..._sliceFormats(existingFormats, 0, existingText.length, shift: tail.length),
+          ...adjustedTailFormats,
+          ..._sliceFormats(
+            existingFormats, 0, existingText.length,
+            shift: leadingTail.length + (existingText.isEmpty ? 0 : 1),
+          ),
         ];
         changed = true;
         pageIndex++;
       }
       if (changed) {
-        setState(() {});
         saveDoc();
+        if (mounted) setState(() {});
       }
     } finally {
       _autoPaginating = false;

@@ -308,43 +308,34 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   }
 
   void _paginateOverflow(double width, double height) {
-    if (_autoPaginating || !mounted || width <= 0 || height <= 0) return;
+    if (_autoPaginating || !mounted || width <= 0 || height <= 0 ||
+        cur < 0 || cur >= pages.length) return;
+
     _autoPaginating = true;
     try {
-      // TextField has its own horizontal and vertical content padding. Measure
-      // within the actual inner area and leave a small safety margin so the
-      // final visible line is not clipped by the editor's line-height rules.
-      // The LayoutBuilder is already inside the page's visible writing box.
-      // Reserve only the TextField's actual internal inset, not a large extra
-      // margin, so pages use the available screen area efficiently.
-      final usableWidth = (width - 20).clamp(40.0, width);
-      final usableHeight = (height - 12).clamp(24.0, height);
+      // LayoutBuilder gives the real size of the visible writing box. The
+      // borderless TextField has little horizontal inset and roughly 12 px
+      // vertical inset at each end; avoid the previous oversized deductions.
+      final usableWidth = (width - 4).clamp(40.0, width);
+      final usableHeight = (height - 24).clamp(24.0, height);
+      final originalSelection = ctrl.selection;
       int pageIndex = cur;
       bool changed = false;
+
+      // Keep distributing until the overflow fits, creating pages as needed.
+      // Do not stop merely because the next page existed already.
       while (pageIndex < pages.length && pageIndex < cur + 100) {
         final page = pages[pageIndex];
         final cut = _findPageBreak(page, usableWidth, usableHeight);
         if (cut == null) break;
 
         final original = page.text;
+        if (cut <= 0 || cut >= original.length) break;
         final tail = original.substring(cut);
-        if (tail.isEmpty) break;
         final tailFormats = _sliceFormats(page.formats, cut, original.length);
-        page.text = original.substring(0, cut).trimRight();
-        final keptLength = page.text.length;
-        page.formats = _sliceFormats(page.formats, 0, keptLength);
-
-        if (pageIndex == cur) {
-          final oldSelection = ctrl.selection;
-          final selectionOffset = oldSelection.isValid
-              ? oldSelection.baseOffset.clamp(0, page.text.length)
-              : page.text.length;
-          ctrl.formats = page.formats;
-          ctrl.value = TextEditingValue(
-            text: page.text,
-            selection: TextSelection.collapsed(offset: selectionOffset),
-          );
-        }
+        final kept = original.substring(0, cut).trimRight();
+        page.text = kept;
+        page.formats = _sliceFormats(page.formats, 0, kept.length);
 
         if (pageIndex + 1 >= pages.length) {
           pages.add(PageData(fontSize: page.fontSize));
@@ -354,21 +345,32 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
         final existingFormats = next.formats;
         final leadingTail = tail.trimLeft();
         final removedLeading = tail.length - leadingTail.length;
-        final adjustedTailFormats = _sliceFormats(
-          tailFormats, removedLeading, tail.length,
-        );
-        next.text = leadingTail + (existingText.isEmpty ? "" : "\n$existingText");
+        final separator = existingText.isEmpty ? "" : "\n";
+        next.text = leadingTail + separator + existingText;
         next.formats = <FormatRange>[
-          ...adjustedTailFormats,
+          ..._sliceFormats(tailFormats, removedLeading, tail.length),
           ..._sliceFormats(
             existingFormats, 0, existingText.length,
-            shift: leadingTail.length + (existingText.isEmpty ? 0 : 1),
+            shift: leadingTail.length + separator.length,
           ),
         ];
         changed = true;
         pageIndex++;
       }
+
       if (changed) {
+        // Update the active controller only once, after all page segments have
+        // been calculated. This avoids recursively reacting to every split.
+        final activeText = pages[cur].text;
+        final oldOffset = originalSelection.isValid
+            ? originalSelection.baseOffset
+            : activeText.length;
+        final offset = oldOffset.clamp(0, activeText.length);
+        ctrl.formats = pages[cur].formats;
+        ctrl.value = TextEditingValue(
+          text: activeText,
+          selection: TextSelection.collapsed(offset: offset),
+        );
         saveDoc();
         if (mounted) setState(() {});
       }
@@ -607,25 +609,63 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                 visibleText, key: ValueKey(index), style: const TextStyle(fontSize: 22, height: 1.5),
               )))),
               const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: typing || index >= sections.length - 1 ? null : () async {
-                  final nextIndex = index + 1;
-                  if (mode == "instant") {
-                    setDialogState(() { index = nextIndex; visibleText = sections[index]; });
-                  } else {
-                    final token = ++animationToken;
-                    setDialogState(() { index = nextIndex; visibleText = ""; typing = true; });
-                    final target = sections[nextIndex];
-                    for (int count = 1; count <= target.length; count++) {
-                      await Future.delayed(const Duration(milliseconds: 12));
-                      if (!ctx.mounted || token != animationToken) return;
-                      setDialogState(() { visibleText = target.substring(0, count); });
-                    }
-                    if (ctx.mounted && token == animationToken) setDialogState(() => typing = false);
-                  }
-                },
-                icon: Icon(index < sections.length - 1 ? Icons.arrow_forward : Icons.check),
-                label: Text(typing ? "Typing…" : (index < sections.length - 1 ? "Next slide" : "End of presentation")),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: index <= 0 ? null : () async {
+                      final previousIndex = index - 1;
+                      if (mode == "instant") {
+                        animationToken++;
+                        setDialogState(() {
+                          index = previousIndex;
+                          visibleText = sections[previousIndex];
+                          typing = false;
+                        });
+                      } else {
+                        final token = ++animationToken;
+                        setDialogState(() {
+                          index = previousIndex;
+                          visibleText = "";
+                          typing = true;
+                        });
+                        final target = sections[previousIndex];
+                        for (int count = 1; count <= target.length; count++) {
+                          await Future.delayed(const Duration(milliseconds: 12));
+                          if (!ctx.mounted || token != animationToken) return;
+                          setDialogState(() { visibleText = target.substring(0, count); });
+                        }
+                        if (ctx.mounted && token == animationToken) {
+                          setDialogState(() => typing = false);
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text("Previous"),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: typing || index >= sections.length - 1 ? null : () async {
+                        final nextIndex = index + 1;
+                        if (mode == "instant") {
+                          setDialogState(() { index = nextIndex; visibleText = sections[index]; });
+                        } else {
+                          final token = ++animationToken;
+                          setDialogState(() { index = nextIndex; visibleText = ""; typing = true; });
+                          final target = sections[nextIndex];
+                          for (int count = 1; count <= target.length; count++) {
+                            await Future.delayed(const Duration(milliseconds: 12));
+                            if (!ctx.mounted || token != animationToken) return;
+                            setDialogState(() { visibleText = target.substring(0, count); });
+                          }
+                          if (ctx.mounted && token == animationToken) setDialogState(() => typing = false);
+                        }
+                      },
+                      icon: Icon(index < sections.length - 1 ? Icons.arrow_forward : Icons.check),
+                      label: Text(typing ? "Typing…" : (index < sections.length - 1 ? "Next slide" : "End")),
+                    ),
+                  ),
+                ],
               ),
               TextButton(onPressed: () { animationToken++; Navigator.pop(ctx); }, child: const Text("Exit presentation")),
             ]),
@@ -935,10 +975,18 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                           maxLines: null,
                           expands: true,
                           style: TextStyle(fontSize: pages[cur].fontSize),
-                          onChanged: (_) => _paginateOverflow(
-                            constraints.maxWidth,
-                            constraints.maxHeight,
-                          ),
+                          onChanged: (_) {
+                            // Wait until the paste/edit has fully reached the
+                            // controller and rendered layout before measuring.
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                _paginateOverflow(
+                                  constraints.maxWidth,
+                                  constraints.maxHeight,
+                                );
+                              }
+                            });
+                          },
                           decoration: const InputDecoration(
                             border: InputBorder.none,
                             hintText: "Type here... select text then tap B/I/U",

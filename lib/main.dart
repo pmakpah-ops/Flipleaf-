@@ -977,40 +977,20 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                           expands: true,
                           style: TextStyle(fontSize: pages[cur].fontSize),
                           onChanged: (_) {
-                            // TEMPORARY DIAGNOSTICS: report the actual editor
-                            // constraints and the current page's text metrics.
+                            // Wait until Flutter has laid out the editor, then
+                            // paginate against its real writing-area dimensions.
+                            // Keep the controller text and page model in sync
+                            // before measuring, especially for large pasted text.
                             WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (!mounted) return;
-                              // Synchronize the active page from the live
-                              // controller before measuring or paginating.
-                              // This ensures paste updates PageData even if the
-                              // controller listener has not synchronized it yet.
+                              if (!mounted || cur < 0 || cur >= pages.length) return;
                               final liveText = ctrl.text;
-                              final page = pages[cur];
-                              if (page.text != liveText) {
-                                page.text = liveText;
+                              if (pages[cur].text != liveText) {
+                                pages[cur].text = liveText;
                               }
-                              final livePage = page.copy()..text = liveText;
-                              final width = constraints.maxWidth;
-                              final height = constraints.maxHeight;
-                              final usableWidth = (width - 4).clamp(40.0, width);
-                              final usableHeight = (height - 24).clamp(24.0, height);
-                              final painter = TextPainter(
-                                text: _pageSpan(livePage, liveText),
-                                textDirection: Directionality.of(context),
-                                textScaler: MediaQuery.textScalerOf(context),
-                              )..layout(maxWidth: usableWidth);
-                              final diagnostic =
-                                  'Page ${cur + 1}; controller characters: ${liveText.length}; saved characters: ${page.text.length}\\n'
-                                  'Box: ${width.toStringAsFixed(1)} × ${height.toStringAsFixed(1)} px; '
-                                  'usable: ${usableWidth.toStringAsFixed(1)} × ${usableHeight.toStringAsFixed(1)} px\\n'
-                                  'Font: ${page.fontSize}; measured text height: ${painter.height.toStringAsFixed(1)} px; '
-                                  'lines: ${painter.computeLineMetrics().length}; '
-                                  'overflow: ${painter.height > usableHeight ? "YES" : "NO"}';
-                              if (mounted) setState(() => _paginationDiagnostic = diagnostic);
-                              debugPrint('[Flipleaf pagination diagnostic] $diagnostic');
-                              painter.dispose();
-                              _paginateOverflow(width, height);
+                              _paginateOverflow(
+                                constraints.maxWidth,
+                                constraints.maxHeight,
+                              );
                             });
                           },
                           decoration: const InputDecoration(

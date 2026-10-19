@@ -996,17 +996,21 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (!mounted) return;
                               final page = pages[cur];
+                              // Measure the live editing controller, not the
+                              // persisted PageData snapshot which can lag a paste.
+                              final liveText = ctrl.text;
+                              final livePage = page.copy()..text = liveText;
                               final width = constraints.maxWidth;
                               final height = constraints.maxHeight;
                               final usableWidth = (width - 4).clamp(40.0, width);
                               final usableHeight = (height - 24).clamp(24.0, height);
                               final painter = TextPainter(
-                                text: _pageSpan(page, page.text),
+                                text: _pageSpan(livePage, liveText),
                                 textDirection: Directionality.of(context),
                                 textScaler: MediaQuery.textScalerOf(context),
                               )..layout(maxWidth: usableWidth);
                               final diagnostic =
-                                  'Page ${cur + 1}; characters: ${page.text.length}\\n'
+                                  'Page ${cur + 1}; controller characters: ${liveText.length}; saved characters: ${page.text.length}\\n'
                                   'Box: ${width.toStringAsFixed(1)} × ${height.toStringAsFixed(1)} px; '
                                   'usable: ${usableWidth.toStringAsFixed(1)} × ${usableHeight.toStringAsFixed(1)} px\\n'
                                   'Font: ${page.fontSize}; measured text height: ${painter.height.toStringAsFixed(1)} px; '

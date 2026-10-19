@@ -995,10 +995,15 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                             // constraints and the current page's text metrics.
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (!mounted) return;
-                              final page = pages[cur];
-                              // Measure the live editing controller, not the
-                              // persisted PageData snapshot which can lag a paste.
+                              // Synchronize the active page from the live
+                              // controller before measuring or paginating.
+                              // This ensures paste updates PageData even if the
+                              // controller listener has not synchronized it yet.
                               final liveText = ctrl.text;
+                              final page = pages[cur];
+                              if (page.text != liveText) {
+                                page.text = liveText;
+                              }
                               final livePage = page.copy()..text = liveText;
                               final width = constraints.maxWidth;
                               final height = constraints.maxHeight;

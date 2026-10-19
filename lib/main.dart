@@ -976,15 +976,31 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                           expands: true,
                           style: TextStyle(fontSize: pages[cur].fontSize),
                           onChanged: (_) {
-                            // Wait until the paste/edit has fully reached the
-                            // controller and rendered layout before measuring.
+                            // TEMPORARY DIAGNOSTICS: report the actual editor
+                            // constraints and the current page's text metrics.
                             WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) {
-                                _paginateOverflow(
-                                  constraints.maxWidth,
-                                  constraints.maxHeight,
-                                );
-                              }
+                              if (!mounted) return;
+                              final page = pages[cur];
+                              final width = constraints.maxWidth;
+                              final height = constraints.maxHeight;
+                              final usableWidth = (width - 4).clamp(40.0, width);
+                              final usableHeight = (height - 24).clamp(24.0, height);
+                              final painter = TextPainter(
+                                text: _pageSpan(page, page.text),
+                                textDirection: Directionality.of(context),
+                                textScaler: MediaQuery.textScalerOf(context),
+                              )..layout(maxWidth: usableWidth);
+                              debugPrint(
+                                '[Flipleaf pagination diagnostic] '
+                                'page=${cur + 1}, chars=${page.text.length}, '
+                                'box=${width.toStringAsFixed(1)}x${height.toStringAsFixed(1)}px, '
+                                'usable=${usableWidth.toStringAsFixed(1)}x${usableHeight.toStringAsFixed(1)}px, '
+                                'font=${page.fontSize}, measuredTextHeight=${painter.height.toStringAsFixed(1)}px, '
+                                'lines=${painter.computeLineMetrics().length}, '
+                                'overflow=${painter.height > usableHeight}'
+                              );
+                              painter.dispose();
+                              _paginateOverflow(width, height);
                             });
                           },
                           decoration: const InputDecoration(

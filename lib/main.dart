@@ -129,6 +129,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   final titleCtrl = TextEditingController();
   String currentDocId = "doc_1";
   List<Map<String, String>> allDocs = [];
+  String _paginationDiagnostic = "Paste text to measure this page.";
 
   @override
   void initState() {
@@ -968,6 +969,20 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                       ],
                     )),
                     const Divider(height: 10),
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.16),
+                        border: Border.all(color: Colors.amber.shade700),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(
+                        "PAGINATION TEST\\n$_paginationDiagnostic",
+                        style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurface),
+                      ),
+                    ),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) => TextField(
@@ -990,15 +1005,15 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                                 textDirection: Directionality.of(context),
                                 textScaler: MediaQuery.textScalerOf(context),
                               )..layout(maxWidth: usableWidth);
-                              debugPrint(
-                                '[Flipleaf pagination diagnostic] '
-                                'page=${cur + 1}, chars=${page.text.length}, '
-                                'box=${width.toStringAsFixed(1)}x${height.toStringAsFixed(1)}px, '
-                                'usable=${usableWidth.toStringAsFixed(1)}x${usableHeight.toStringAsFixed(1)}px, '
-                                'font=${page.fontSize}, measuredTextHeight=${painter.height.toStringAsFixed(1)}px, '
-                                'lines=${painter.computeLineMetrics().length}, '
-                                'overflow=${painter.height > usableHeight}'
-                              );
+                              final diagnostic =
+                                  'Page ${cur + 1}; characters: ${page.text.length}\\n'
+                                  'Box: ${width.toStringAsFixed(1)} × ${height.toStringAsFixed(1)} px; '
+                                  'usable: ${usableWidth.toStringAsFixed(1)} × ${usableHeight.toStringAsFixed(1)} px\\n'
+                                  'Font: ${page.fontSize}; measured text height: ${painter.height.toStringAsFixed(1)} px; '
+                                  'lines: ${painter.computeLineMetrics().length}; '
+                                  'overflow: ${painter.height > usableHeight ? "YES" : "NO"}';
+                              if (mounted) setState(() => _paginationDiagnostic = diagnostic);
+                              debugPrint('[Flipleaf pagination diagnostic] $diagnostic');
                               painter.dispose();
                               _paginateOverflow(width, height);
                             });

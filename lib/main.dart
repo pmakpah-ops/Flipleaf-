@@ -969,20 +969,6 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                       ],
                     )),
                     const Divider(height: 10),
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.withValues(alpha: 0.16),
-                        border: Border.all(color: Colors.amber.shade700),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Text(
-                        "PAGINATION TEST\\n$_paginationDiagnostic",
-                        style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurface),
-                      ),
-                    ),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) => TextField(

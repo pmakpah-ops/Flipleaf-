@@ -886,6 +886,9 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Keep the page editor's layout height stable when the keyboard opens.
+      // The keyboard may cover part of the page, but must not redefine page capacity.
+      resizeToAvoidBottomInset: false,
       backgroundColor: bgColors[bgName],
       drawer: Drawer(
           child: ListView(children: [
@@ -986,14 +989,12 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                               if (pages[cur].text != liveText) {
                                 pages[cur].text = liveText;
                               }
-                              // Scaffold reduces the body height when the
-                              // keyboard opens. Add that inset back so page
-                              // capacity stays based on the same full writing
-                              // area, regardless of keyboard height.
-                              final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+                              // The Scaffold keeps the page area at a stable
+                              // height while the keyboard is open, so measure
+                              // against these unchanged editor constraints.
                               _paginateOverflow(
                                 constraints.maxWidth,
-                                constraints.maxHeight + keyboardInset,
+                                constraints.maxHeight,
                               );
                             });
                           },

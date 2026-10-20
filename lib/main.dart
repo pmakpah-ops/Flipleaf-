@@ -986,9 +986,14 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                               if (pages[cur].text != liveText) {
                                 pages[cur].text = liveText;
                               }
+                              // Scaffold reduces the body height when the
+                              // keyboard opens. Add that inset back so page
+                              // capacity stays based on the same full writing
+                              // area, regardless of keyboard height.
+                              final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
                               _paginateOverflow(
                                 constraints.maxWidth,
-                                constraints.maxHeight,
+                                constraints.maxHeight + keyboardInset,
                               );
                             });
                           },

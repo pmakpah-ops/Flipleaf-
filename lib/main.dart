@@ -314,11 +314,10 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
 
     _autoPaginating = true;
     try {
-      // LayoutBuilder gives the real size of the visible writing box. The
-      // borderless TextField has little horizontal inset and roughly 12 px
-      // vertical inset at each end; avoid the previous oversized deductions.
+      // Measure against the visible writing box. The TextField decoration
+      // below uses zero content padding, so only a small safety inset is needed.
       final usableWidth = (width - 4).clamp(40.0, width);
-      final usableHeight = (height - 24).clamp(24.0, height);
+      final usableHeight = (height - 4).clamp(24.0, height);
       final originalSelection = ctrl.selection;
       int pageIndex = cur;
       bool changed = false;
@@ -995,6 +994,8 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
                           },
                           decoration: const InputDecoration(
                             border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
                             hintText: "Type here... select text then tap B/I/U",
                           ),
                         ),

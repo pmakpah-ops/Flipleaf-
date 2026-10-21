@@ -141,7 +141,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
+  Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
@@ -149,7 +149,10 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
         pages[cur].text = ctrl.text;
         pages[cur].formats = ctrl.formats;
       }
-      saveDoc();
+      docTitle = titleCtrl.text;
+      // Await the write when Android backgrounds the app; do not rely on
+      // dispose(), which is not guaranteed to finish asynchronous work.
+      await saveDoc();
     }
   }
 
@@ -214,6 +217,12 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
 
   Future<void> saveDoc() async {
     final id = currentDocId;
+    if (cur >= 0 && cur < pages.length) {
+      // Snapshot the live controller explicitly; do not depend only on its listener.
+      pages[cur].text = ctrl.text;
+      pages[cur].formats = ctrl.formats;
+    }
+    docTitle = titleCtrl.text.isNotEmpty ? titleCtrl.text : docTitle;
     final title = docTitle;
     final created = createdDate;
     final background = bgName;
@@ -227,9 +236,13 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
       "pages": pageSnapshot,
     });
     final p = await SharedPreferences.getInstance();
-    // Serialize writes so a slower, older save cannot overwrite a newer edit.
-    _saveQueue = _saveQueue.then((_) async {
-      await p.setString("flipleaf_$id", documentJson);
+    // Recover from an earlier failed write so the queue remains usable.
+    _saveQueue = _saveQueue.catchError((Object _) {}).then((_) async {
+      final saved = await p.setString("flipleaf_$id", documentJson);
+      if (!saved) {
+        throw StateError("Flipleaf document write failed for $id");
+      }
+      await p.setString("flipleaf_current_id", id);
       final idx = allDocs.indexWhere((entry) => entry["id"] == id);
       if (idx >= 0) {
         allDocs[idx]["title"] = title.isEmpty ? "Untitled" : title;

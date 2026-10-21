@@ -104,7 +104,7 @@ class FlipleafEditor extends StatefulWidget {
   State<FlipleafEditor> createState() => _FlipleafEditorState();
 }
 
-class _FlipleafEditorState extends State<FlipleafEditor> {
+class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObserver {
   List<PageData> pages = [PageData()];
   int cur = 0;
   late RichController ctrl;
@@ -134,9 +134,23 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     ctrl = RichController(text: "", formats: [], baseSize: 18);
     createdDate = "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}";
     loadAll();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      if (cur >= 0 && cur < pages.length) {
+        pages[cur].text = ctrl.text;
+        pages[cur].formats = ctrl.formats;
+      }
+      saveDoc();
+    }
   }
 
   Future<void> loadAll() async {
@@ -878,6 +892,12 @@ class _FlipleafEditorState extends State<FlipleafEditor> {
   @override
   void dispose() {
     timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    if (cur >= 0 && cur < pages.length) {
+      pages[cur].text = ctrl.text;
+      pages[cur].formats = ctrl.formats;
+    }
+    saveDoc();
     ctrl.dispose();
     titleCtrl.dispose();
     super.dispose();

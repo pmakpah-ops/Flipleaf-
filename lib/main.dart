@@ -216,13 +216,9 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
   }
 
   Future<void> saveDoc() async {
+    // Snapshot state before awaiting storage, so a later page/document switch
+    // cannot change which content this save writes.
     final id = currentDocId;
-    if (cur >= 0 && cur < pages.length) {
-      // Snapshot the live controller explicitly; do not depend only on its listener.
-      pages[cur].text = ctrl.text;
-      pages[cur].formats = ctrl.formats;
-    }
-    docTitle = titleCtrl.text.isNotEmpty ? titleCtrl.text : docTitle;
     final title = docTitle;
     final created = createdDate;
     final background = bgName;
@@ -235,22 +231,15 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
       "timer": seconds,
       "pages": pageSnapshot,
     });
+    final listSnapshot = allDocs.map((entry) => Map<String, String>.from(entry)).toList();
     final p = await SharedPreferences.getInstance();
-    // Recover from an earlier failed write so the queue remains usable.
-    _saveQueue = _saveQueue.catchError((Object _) {}).then((_) async {
-      final saved = await p.setString("flipleaf_$id", documentJson);
-      if (!saved) {
-        throw StateError("Flipleaf document write failed for $id");
-      }
-      await p.setString("flipleaf_current_id", id);
-      final idx = allDocs.indexWhere((entry) => entry["id"] == id);
-      if (idx >= 0) {
-        allDocs[idx]["title"] = title.isEmpty ? "Untitled" : title;
-        allDocs[idx]["color"] = background;
-        await p.setString("flipleaf_all_list", jsonEncode(allDocs));
-      }
-    });
-    await _saveQueue;
+    await p.setString("flipleaf_$id", documentJson);
+    final idx = listSnapshot.indexWhere((entry) => entry["id"] == id);
+    if (idx >= 0) {
+      listSnapshot[idx]["title"] = title.isEmpty ? "Untitled" : title;
+      listSnapshot[idx]["color"] = background;
+      await p.setString("flipleaf_all_list", jsonEncode(listSnapshot));
+    }
   }
 
   bool _autoPaginating = false;

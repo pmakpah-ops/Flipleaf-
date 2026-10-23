@@ -130,6 +130,12 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
   String currentDocId = "doc_1";
   List<Map<String, String>> allDocs = [];
   String _paginationDiagnostic = "Paste text to measure this page.";
+  String _storageStatus = "Storage: checking";
+
+  void _setStorageStatus(String value) {
+    if (!mounted || _storageStatus == value) return;
+    setState(() => _storageStatus = value);
+  }
 
   @override
   void initState() {
@@ -157,91 +163,129 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
   }
 
   Future<void> loadAll() async {
-    final p = await SharedPreferences.getInstance();
-    String? listStr = p.getString("flipleaf_all_list");
-    if (listStr!= null) {
-      try {
-        var l = jsonDecode(listStr) as List;
-        allDocs = l.map((e) => Map<String, String>.from(e as Map)).toList();
-      } catch (_) {}
+    try {
+      final p = await SharedPreferences.getInstance();
+      final listStr = p.getString("flipleaf_all_list");
+      if (listStr != null) {
+        try {
+          final decoded = jsonDecode(listStr);
+          if (decoded is List) {
+            allDocs = decoded.whereType<Map>().map((e) => Map<String, String>.from(
+              e.map((key, value) => MapEntry(key.toString(), value.toString())))).where((e) => (e["id"] ?? "").isNotEmpty).toList();
+          } else {
+            _setStorageStatus("Storage warning: folder list is not a list");
+          }
+        } catch (e) {
+          _setStorageStatus("Storage warning: folder list unreadable");
+        }
+      }
+      if (allDocs.isEmpty) {
+        allDocs = [{"id": "doc_1", "title": "House Fellowship", "created": createdDate}];
+        final ok = await p.setString("flipleaf_all_list", jsonEncode(allDocs));
+        if (!ok) _setStorageStatus("Storage error: could not create folder list");
+      }
+      final storedId = p.getString("flipleaf_current_id");
+      currentDocId = allDocs.any((d) => d["id"] == storedId) ? storedId! : allDocs.first["id"]!;
+      if (currentDocId != storedId) await p.setString("flipleaf_current_id", currentDocId);
+      await loadDoc(currentDocId);
+    } catch (e) {
+      _setStorageStatus("Storage error loading folders: ${e.runtimeType}");
     }
-    if (allDocs.isEmpty) {
-      allDocs = [{"id": "doc_1", "title": "House Fellowship", "created": createdDate}];
-      await p.setString("flipleaf_all_list", jsonEncode(allDocs));
-    }
-    currentDocId = p.getString("flipleaf_current_id")?? allDocs.first["id"]!;
-    await loadDoc(currentDocId);
   }
 
   Future<void> loadDoc(String id) async {
-    final p = await SharedPreferences.getInstance();
-    String? saved = p.getString("flipleaf_$id");
-    if (saved == null && id == "doc_1") saved = p.getString("flipleaf_doc_v3");
-    if (saved!= null) {
-      try {
-        var j = jsonDecode(saved) as Map<String, dynamic>;
-        List<PageData> loaded = [];
-        var plist = j["pages"];
-        if (plist is List) {
-          for (var item in plist) {
-            loaded.add(PageData.fromJson(Map<String, dynamic>.from(item as Map)));
+    try {
+      final p = await SharedPreferences.getInstance();
+      String? saved = p.getString("flipleaf_$id");
+      if (saved == null && id == "doc_1") saved = p.getString("flipleaf_doc_v3");
+      if (saved != null) {
+        try {
+          final j = jsonDecode(saved) as Map<String, dynamic>;
+          final loaded = <PageData>[];
+          final plist = j["pages"];
+          if (plist is List) {
+            for (final item in plist) loaded.add(PageData.fromJson(Map<String, dynamic>.from(item as Map)));
           }
+          setState(() {
+            if (j["title"] is String) docTitle = j["title"];
+            if (j["created"] is String) createdDate = j["created"];
+            titleCtrl.text = docTitle;
+            if (loaded.isNotEmpty) pages = loaded;
+            cur = 0;
+            if (j["bg"] is String) bgName = j["bg"];
+            final docIndex = allDocs.indexWhere((d) => d["id"] == id);
+            if (docIndex >= 0 && bgColors.containsKey(allDocs[docIndex]["color"])) bgName = allDocs[docIndex]["color"]!;
+            if (j["timer"] is int) timerSec = j["timer"];
+          });
+          final suffix = id.length > 14 ? id.substring(id.length - 8) : id;
+          _setStorageStatus("Loaded $suffix • ${loaded.length} page(s)");
+        } catch (e) {
+          _setStorageStatus("Load error for $id: ${e.runtimeType}");
         }
+      } else {
         setState(() {
-          if (j["title"] is String) docTitle = j["title"];
-          if (j["created"] is String) createdDate = j["created"];
-          titleCtrl.text = docTitle;
-          if (loaded.isNotEmpty) pages = loaded;
+          pages = [PageData()];
           cur = 0;
-          if (j["bg"] is String) bgName = j["bg"];
+          docTitle = "";
+          titleCtrl.text = "";
           final docIndex = allDocs.indexWhere((d) => d["id"] == id);
-          if (docIndex >= 0 && bgColors.containsKey(allDocs[docIndex]["color"])) bgName = allDocs[docIndex]["color"]!;
-          if (j["timer"] is int) timerSec = j["timer"];
+          bgName = docIndex >= 0 && bgColors.containsKey(allDocs[docIndex]["color"]) ? allDocs[docIndex]["color"]! : "White";
         });
-      } catch (_) {}
-    } else {
-      setState(() {
-        pages = [PageData()];
-        cur = 0;
-        docTitle = "";
-        titleCtrl.text = "";
-        final docIndex = allDocs.indexWhere((d) => d["id"] == id);
-        bgName = docIndex >= 0 && bgColors.containsKey(allDocs[docIndex]["color"])
-            ? allDocs[docIndex]["color"]! : "White";
-      });
+        _setStorageStatus("No saved content for $id (new/empty document)");
+      }
+      initCtrl();
+      currentDocId = id;
+      final activeIdSaved = await p.setString("flipleaf_current_id", id);
+      if (!activeIdSaved) _setStorageStatus("Storage error: active document ID not saved");
+    } catch (e) {
+      _setStorageStatus("Storage error opening document: ${e.runtimeType}");
     }
-    initCtrl();
-    currentDocId = id;
-    await p.setString("flipleaf_current_id", id);
   }
 
   Future<void> saveDoc() async {
-    // Snapshot state before awaiting storage, so a later page/document switch
-    // cannot change which content this save writes.
+    // Capture current editor state immediately; serialize writes to prevent an older
+    // keystroke snapshot from finishing after and overwriting a newer one.
+    if (cur < 0 || cur >= pages.length) {
+      _setStorageStatus("Save blocked: invalid page index");
+      return;
+    }
+    pages[cur].text = ctrl.text;
+    pages[cur].formats = ctrl.formats;
+    docTitle = titleCtrl.text;
     final id = currentDocId;
     final title = docTitle;
     final created = createdDate;
     final background = bgName;
     final seconds = timerSec;
     final pageSnapshot = pages.map((page) => page.copy().toJson()).toList();
-    final documentJson = jsonEncode({
-      "title": title,
-      "created": created,
-      "bg": background,
-      "timer": seconds,
-      "pages": pageSnapshot,
-    });
+    final documentJson = jsonEncode({"title": title, "created": created, "bg": background, "timer": seconds, "pages": pageSnapshot});
     final listSnapshot = allDocs.map((entry) => Map<String, String>.from(entry)).toList();
-    final p = await SharedPreferences.getInstance();
-    await p.setString("flipleaf_$id", documentJson);
-    final idx = listSnapshot.indexWhere((entry) => entry["id"] == id);
-    if (idx >= 0) {
-      listSnapshot[idx]["title"] = title.isEmpty ? "Untitled" : title;
-      listSnapshot[idx]["color"] = background;
-      await p.setString("flipleaf_all_list", jsonEncode(listSnapshot));
-    }
+    final pendingSave = _saveQueue.then((_) async {
+      try {
+        final p = await SharedPreferences.getInstance();
+        final docOk = await p.setString("flipleaf_$id", documentJson);
+        if (!docOk) { _setStorageStatus("Save failed: document write rejected"); return; }
+        if (p.getString("flipleaf_$id") != documentJson) { _setStorageStatus("Save warning: verification mismatch"); return; }
+        var idx = listSnapshot.indexWhere((entry) => entry["id"] == id);
+        if (idx < 0) {
+          listSnapshot.add({"id": id, "title": title.isEmpty ? "Untitled" : title, "created": created, "color": background});
+        } else {
+          listSnapshot[idx]["title"] = title.isEmpty ? "Untitled" : title;
+          listSnapshot[idx]["created"] ??= created;
+          listSnapshot[idx]["color"] = background;
+        }
+        allDocs = listSnapshot;
+        final listOk = await p.setString("flipleaf_all_list", jsonEncode(listSnapshot));
+        if (!listOk) { _setStorageStatus("Document saved, but folder list write failed"); return; }
+        final suffix = id.length > 14 ? id.substring(id.length - 8) : id;
+        _setStorageStatus("Saved • $suffix • ${pageSnapshot.length} page(s)");
+      } catch (e) {
+        _setStorageStatus("Save error: ${e.runtimeType}");
+      }
+    });
+    _saveQueue = pendingSave;
+    await pendingSave;
   }
-
   bool _autoPaginating = false;
 
   TextSpan _pageSpan(PageData page, String value) {
@@ -972,6 +1016,7 @@ class _FlipleafEditorState extends State<FlipleafEditor> with WidgetsBindingObse
         Container(color: const Color(0xFFD9D9B8), padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4), child: Row(children: [iconBtn("B", FontWeight.bold, () => toggleStyle(bold: true)), iconBtn("I", FontWeight.normal, () => toggleStyle(italic: true), italic: true), iconBtn("U", FontWeight.normal, () => toggleStyle(underline: true), underline: true), const SizedBox(width: 6), IconButton(icon: const Icon(Icons.undo, size: 22), onPressed: undo), IconButton(icon: const Icon(Icons.redo, size: 22), onPressed: redo), const Spacer(), IconButton(icon: const Text("A-", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), onPressed: () => changeFont(-1)), Text("${pages[cur].fontSize.toInt()}", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)), IconButton(icon: const Text("A+", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), onPressed: () => changeFont(1)),])),
         Container(color: Colors.black12, padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), child: Row(children: [ElevatedButton.icon(icon: const Icon(Icons.chevron_left, size: 20), label: const Text("Prev"), onPressed: cur > 0? flipPrev : null, style: ElevatedButton.styleFrom(minimumSize: const Size(70, 36))), const SizedBox(width: 8), Text("${cur + 1} / ${pages.length}", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), const SizedBox(width: 8), ElevatedButton.icon(icon: const Icon(Icons.chevron_right, size: 20), label: const Text("Next"), onPressed: flipNext, style: ElevatedButton.styleFrom(minimumSize: const Size(70, 36))), const Spacer(), ElevatedButton.icon(icon: const Icon(Icons.add, size: 20), label: const Text("New Page"), onPressed: addNewPage, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, minimumSize: const Size(90, 36))),])),
         Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), child: TextField(controller: titleCtrl, onChanged: (v) { docTitle = v; saveDoc(); }, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold), decoration: const InputDecoration(hintText: "Document Title", border: InputBorder.none, isDense: true, prefixIcon: Icon(Icons.title, size: 20)))),
+        Padding(padding: const EdgeInsets.only(left: 16, right: 12, bottom: 4), child: Align(alignment: Alignment.centerLeft, child: Text(_storageStatus, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Colors.black54)))),
         Expanded(
             child: GestureDetector(
           onHorizontalDragEnd: handleSwipe,
